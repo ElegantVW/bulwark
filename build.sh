@@ -15,19 +15,12 @@ if [[ "${1:-}" == "install" ]]; then
   cp -f "$BIN" "$LIB/bulwark"
   chmod +x "$LIB/bulwark"
 
+  # Always refresh launchers (old scripts were sticky and broke sudo stories).
   install_launcher() {
     local dest="$1"
     mkdir -p "$(dirname "$dest")"
-    if [[ ! -e "$dest" ]]; then
-      cp -f "$WRAP_SRC" "$dest"
-      chmod +x "$dest"
-      return
-    fi
-    # Replace leftover prebuilt ELF so ~/bin stays a launcher
-    if file -b "$dest" 2>/dev/null | grep -q ELF; then
-      cp -f "$WRAP_SRC" "$dest"
-      chmod +x "$dest"
-    fi
+    cp -f "$WRAP_SRC" "$dest"
+    chmod +x "$dest"
   }
 
   install_launcher "$HOME/bin/bulwark"
@@ -35,6 +28,21 @@ if [[ "${1:-}" == "install" ]]; then
     install_launcher "$HOME/faeos/bin/bulwark"
   fi
 
+  # sudo uses PATH without ~/bin — plant a copy in /usr/local/bin when allowed.
+  if [[ -w /usr/local/bin ]] || sudo -n true 2>/dev/null; then
+    if [[ -w /usr/local/bin ]]; then
+      install_launcher /usr/local/bin/bulwark
+      echo "launcher        → /usr/local/bin/bulwark (sudo-visible)"
+    else
+      sudo install -m 755 "$WRAP_SRC" /usr/local/bin/bulwark
+      echo "launcher        → /usr/local/bin/bulwark (sudo-visible)"
+    fi
+  else
+    echo "note: sudo cannot see ~/bin — raise Aegis with:"
+    echo "  sudo $LIB/bulwark aegis apply desktop"
+    echo "or once: sudo install -m 755 $WRAP_SRC /usr/local/bin/bulwark"
+  fi
+
   echo "installed engine → $LIB/bulwark"
-  echo "launcher        → $HOME/bin/bulwark (thin script; never overwrites a good wrapper with ELF)"
+  echo "launcher        → $HOME/bin/bulwark"
 fi

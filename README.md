@@ -31,6 +31,10 @@ cd ~/bulwark && ./build.sh install
 Install alone does **not** raise the wall. Next:
 
 ```bash
+# sudo does not see ~/bin — build.sh install plants /usr/local/bin/bulwark.
+# If needed once:  sudo install -m 755 ~/bulwark/scripts/bulwark /usr/local/bin/bulwark
+# Or call the engine:  sudo ~/.local/lib/faeos/bulwark aegis apply desktop
+
 sudo bulwark aegis apply desktop   # raise Aegis (deadman starts)
 bulwark aegis confirm              # keep the lock
 sudo bulwark install --system      # restore wall on reboot

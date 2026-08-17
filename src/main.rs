@@ -467,13 +467,20 @@ fn cmd_install_system() -> Result<()> {
     let dest = lib.join("bulwark");
     let src = std::env::current_exe()?;
     fs::copy(&src, &dest)?;
-    // make executable
+    // make executable + sudo-visible name (sudo PATH has /usr/local/bin, not ~/bin)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = fs::metadata(&dest)?.permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&dest, perms)?;
+        let link = PathBuf::from("/usr/local/bin/bulwark");
+        let _ = fs::remove_file(&link);
+        // Prefer hard copy of engine so `sudo bulwark` works even if launcher missing
+        let _ = fs::copy(&dest, &link);
+        let mut lp = fs::metadata(&link)?.permissions();
+        lp.set_mode(0o755);
+        fs::set_permissions(&link, lp)?;
     }
 
     let sys = paths::system_state_dir();
