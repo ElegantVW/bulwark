@@ -33,10 +33,15 @@ Install alone does **not** raise the wall. Next:
 ```bash
 sudo bulwark aegis apply desktop   # raise Aegis (deadman starts)
 bulwark aegis confirm              # keep the lock
+sudo bulwark install --system      # restore wall on reboot
 bulwark                            # look — mood must tell truth
 ```
 
 Profiles: **`desktop`** (default laptop — **no SSH**), `strict`, `server-ssh` (opens 22).
+
+Boot restore uses `bulwark-aegis.service` → `aegis restore` with the last
+**confirmed** policy under `/var/lib/bulwark/`. Release Aegis clears that so
+reboot does not bring the wall back.
 
 Full engines contract: [faeOS docs/engines.md](https://github.com/ElegantVW/faeOS/blob/main/docs/engines.md).
 

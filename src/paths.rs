@@ -14,6 +14,11 @@ pub fn data_dir() -> PathBuf {
     base.join("faeos").join("bulwark")
 }
 
+/// Root-owned state for boot restore (system install).
+pub fn system_state_dir() -> PathBuf {
+    PathBuf::from("/var/lib/bulwark")
+}
+
 fn dirs_fallback_home() -> PathBuf {
     std::env::var("HOME")
         .map(PathBuf::from)
@@ -31,6 +36,20 @@ pub fn ensure_dirs() -> std::io::Result<PathBuf> {
 
 pub fn policy_path() -> PathBuf {
     data_dir().join("aegis").join("policy.aegis")
+}
+
+/// Policy text from the last apply (pending deadman confirm).
+pub fn pending_policy_path() -> PathBuf {
+    data_dir().join("aegis").join("pending_policy.aegis")
+}
+
+/// Last confirmed policy (user tree) — used for restore / system install.
+pub fn confirmed_policy_path() -> PathBuf {
+    data_dir().join("aegis").join("confirmed_policy.aegis")
+}
+
+pub fn system_confirmed_policy_path() -> PathBuf {
+    system_state_dir().join("confirmed_policy.aegis")
 }
 
 pub fn aegis_snapshot_path() -> PathBuf {

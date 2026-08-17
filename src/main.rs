@@ -81,8 +81,10 @@ enum AegisCmd {
         #[arg(long)]
         no_deadman: bool,
     },
-    /// Confirm apply (cancel deadman undo)
+    /// Confirm apply (cancel deadman undo); keep wall after reboot if system install
     Confirm,
+    /// Re-apply last confirmed policy (boot / no deadman)
+    Restore,
     /// Remove bulwark nf_tables table
     Undo {
         #[arg(long, default_value = "bulwark")]
@@ -243,8 +245,10 @@ fn cmd_aegis(action: AegisCmd) -> Result<()> {
             let text = aegis::load_bundled_profile(&profile)?;
             let res = aegis::apply_policy_text(&text, &paths::aegis_snapshot_path())
                 .context("aegis apply failed")?;
-            // persist as current policy — only after the kernel accepted it
             fs::write(paths::policy_path(), &text)?;
+            fs::write(paths::pending_policy_path(), &text)?;
+            // unconfirmed until confirm — boot restore must not use this yet
+            let _ = fs::remove_file(paths::confirmed_policy_path());
             println!("✦ {}", res.message);
             if !no_deadman && deadman > 0 {
                 println!(
@@ -253,18 +257,21 @@ fn cmd_aegis(action: AegisCmd) -> Result<()> {
                 let secs = deadman;
                 let marker = paths::data_dir().join("aegis").join("confirm.ok");
                 let _ = fs::remove_file(&marker);
-                // one detached watcher: if no confirm within `secs`, it undoes
-                // the table itself. It never deletes the marker — see Undo.
                 deadman_spawn(secs, marker)?;
+            } else {
+                confirm_policy_persist()?;
             }
             Ok(())
         }
         AegisCmd::Confirm => {
             let marker = paths::data_dir().join("aegis").join("confirm.ok");
             fs::write(&marker, b"ok\n")?;
-            println!("✦ aegis confirm recorded — deadman cancelled");
+            confirm_policy_persist()?;
+            println!("✦ Aegis kept — front door lock stays up");
+            println!("  (for reboot: sudo bulwark install --system)");
             Ok(())
         }
+        AegisCmd::Restore => cmd_aegis_restore(),
         AegisCmd::Undo { table } => {
             // deadman helper path
             if let Ok(secs) = std::env::var("BULWARK_DEADMAN") {
@@ -274,8 +281,6 @@ fn cmd_aegis(action: AegisCmd) -> Result<()> {
                     .unwrap_or_else(|_| paths::data_dir().join("aegis").join("confirm.ok"));
                 for _ in 0..secs {
                     if marker.is_file() {
-                        // leave the marker in place: other deadman watchers
-                        // must also see it, and a later apply removes it.
                         eprintln!("bulwark deadman: confirmed — keep rules");
                         return Ok(());
                     }
@@ -283,15 +288,68 @@ fn cmd_aegis(action: AegisCmd) -> Result<()> {
                 }
                 eprintln!("bulwark deadman: no confirm — undoing table {table}");
             }
-            // idempotent: undoing with no table is a success
             aegis::flush_bulwark(&table, aegis::policy::Family::Inet)
                 .context("undo/flush")?;
             let _ = fs::remove_file(paths::aegis_snapshot_path());
             let _ = fs::remove_file(paths::data_dir().join("aegis").join("confirm.ok"));
-            println!("✦ aegis undo: table '{table}' removed");
+            let _ = fs::remove_file(paths::pending_policy_path());
+            let _ = fs::remove_file(paths::confirmed_policy_path());
+            let _ = fs::remove_file(paths::system_confirmed_policy_path());
+            println!("✦ Aegis released — table '{table}' removed (will not restore on boot)");
             Ok(())
         }
     }
+}
+
+fn confirm_policy_persist() -> Result<()> {
+    let pending = paths::pending_policy_path();
+    let text = if pending.is_file() {
+        fs::read_to_string(&pending)?
+    } else if paths::policy_path().is_file() {
+        fs::read_to_string(paths::policy_path())?
+    } else if paths::confirmed_policy_path().is_file() {
+        fs::read_to_string(paths::confirmed_policy_path())?
+    } else {
+        bail!("nothing to confirm — raise Aegis first (aegis apply)");
+    };
+    fs::write(paths::confirmed_policy_path(), &text)?;
+    if nix_euid_root() {
+        let _ = fs::create_dir_all(paths::system_state_dir());
+        let _ = fs::write(paths::system_confirmed_policy_path(), &text);
+    }
+    Ok(())
+}
+
+fn nix_euid_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
+fn cmd_aegis_restore() -> Result<()> {
+    let _ = paths::ensure_dirs()?;
+    let candidates = [
+        paths::system_confirmed_policy_path(),
+        paths::confirmed_policy_path(),
+    ];
+    let mut text = None;
+    for p in &candidates {
+        if p.is_file() {
+            text = Some(fs::read_to_string(p)?);
+            break;
+        }
+    }
+    let text = text.ok_or_else(|| {
+        anyhow::anyhow!("no confirmed policy — raise Aegis and confirm first")
+    })?;
+    let res = aegis::apply_policy_text(&text, &paths::aegis_snapshot_path())
+        .context("aegis restore failed")?;
+    fs::write(paths::policy_path(), &text)?;
+    fs::write(paths::confirmed_policy_path(), &text)?;
+    if nix_euid_root() {
+        let _ = fs::create_dir_all(paths::system_state_dir());
+        let _ = fs::write(paths::system_confirmed_policy_path(), &text);
+    }
+    println!("✦ Aegis restored — {}", res.message);
+    Ok(())
 }
 
 /// Detached deadman watcher: runs `bulwark aegis undo` with the deadline in
@@ -350,17 +408,21 @@ fn cmd_purity(action: PurityCmd) -> Result<()> {
 fn cmd_install(system: bool) -> Result<()> {
     let d = paths::ensure_dirs()?;
     println!("✦ bulwark data → {}", d.display());
-    let (unit_dir, target, scope) = if system {
-        (PathBuf::from("/etc/systemd/system"), "multi-user.target", "system")
-    } else {
-        (dirs_user_unit()?, "default.target", "user")
-    };
+
+    if system {
+        if !nix_euid_root() {
+            bail!("system install needs root: sudo bulwark install --system");
+        }
+        return cmd_install_system();
+    }
+
+    let unit_dir = dirs_user_unit()?;
     fs::create_dir_all(&unit_dir)?;
     let exe = std::env::current_exe()?.display().to_string();
     let log = d.join("logs").join("ward.log").display().to_string();
     let service = format!(
         r#"[Unit]
-Description=Bulwark Sentinel (faeOS host watch)
+Description=Bulwark Sentinel (faeOS host watch — does not raise Aegis)
 After=default.target
 
 [Service]
@@ -369,7 +431,7 @@ ExecStart={exe} sentinel
 ExecStartPost=/bin/sh -c '{exe} ward >> {log} 2>&1 || true'
 
 [Install]
-WantedBy={target}
+WantedBy=default.target
 "#
     );
     let timer = r#"[Unit]
@@ -385,21 +447,82 @@ WantedBy=timers.target
 "#;
     fs::write(unit_dir.join("bulwark-sentinel.service"), service)?;
     fs::write(unit_dir.join("bulwark-sentinel.timer"), timer)?;
-    // best-effort enable
-    if system {
-        let _ = Command::new("systemctl").args(["daemon-reload"]).status();
-        let _ = Command::new("systemctl")
-            .args(["enable", "--now", "bulwark-sentinel.timer"])
-            .status();
-    } else {
-        let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
-        let _ = Command::new("systemctl")
-            .args(["--user", "enable", "--now", "bulwark-sentinel.timer"])
-            .status();
+    let _ = Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status();
+    let _ = Command::new("systemctl")
+        .args(["--user", "enable", "--now", "bulwark-sentinel.timer"])
+        .status();
+    println!("✦ user timer bulwark-sentinel.timer installed (watch only)");
+    println!("✦ next: Purity photo — bulwark purity baseline");
+    println!("✦ next: Raise Aegis — sudo bulwark aegis apply desktop && bulwark aegis confirm");
+    println!("✦ then:  sudo bulwark install --system   # keep wall after reboot");
+    Ok(())
+}
+
+fn cmd_install_system() -> Result<()> {
+    // Plant engine where the system unit can find it (not under $HOME).
+    let lib = PathBuf::from("/usr/local/lib/faeos");
+    fs::create_dir_all(&lib)?;
+    let dest = lib.join("bulwark");
+    let src = std::env::current_exe()?;
+    fs::copy(&src, &dest)?;
+    // make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&dest)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&dest, perms)?;
     }
-    println!("✦ {scope} timer bulwark-sentinel.timer installed");
-    println!("✦ next: bulwark purity baseline");
-    println!("✦ next: sudo bulwark aegis apply desktop   # then bulwark aegis confirm");
+
+    let sys = paths::system_state_dir();
+    fs::create_dir_all(&sys)?;
+    // Prefer already-confirmed user policy
+    let user_confirmed = paths::confirmed_policy_path();
+    if user_confirmed.is_file() {
+        fs::copy(&user_confirmed, paths::system_confirmed_policy_path())?;
+        println!(
+            "✦ planted confirmed policy → {}",
+            paths::system_confirmed_policy_path().display()
+        );
+    } else if !paths::system_confirmed_policy_path().is_file() {
+        println!("✦ warn: no confirmed policy yet — raise Aegis + confirm, then re-run install --system");
+    }
+
+    let exe = dest.display().to_string();
+    let unit_dir = PathBuf::from("/etc/systemd/system");
+    let aegis_unit = format!(
+        r#"[Unit]
+Description=Bulwark Aegis — restore front-door lock
+DefaultDependencies=no
+After=network-pre.target nftables.service
+Wants=network-pre.target
+Before=network.target multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={exe} aegis restore
+# Failure must be visible in journal; do not soft-hide
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+"#
+    );
+    fs::write(unit_dir.join("bulwark-aegis.service"), aegis_unit)?;
+    let _ = Command::new("systemctl").args(["daemon-reload"]).status();
+    let st = Command::new("systemctl")
+        .args(["enable", "--now", "bulwark-aegis.service"])
+        .status()
+        .context("systemctl enable bulwark-aegis")?;
+    if !st.success() {
+        bail!("could not enable bulwark-aegis.service (see systemctl status)");
+    }
+    println!("✦ system unit bulwark-aegis.service enabled (wall restores on boot)");
+    println!("✦ engine → {exe}");
     Ok(())
 }
 
@@ -410,8 +533,20 @@ fn cmd_uninstall(purge: bool) -> Result<()> {
         .status();
     let _ = fs::remove_file(unit_dir.join("bulwark-sentinel.timer"));
     let _ = fs::remove_file(unit_dir.join("bulwark-sentinel.service"));
+    if nix_euid_root() {
+        let _ = Command::new("systemctl")
+            .args(["disable", "--now", "bulwark-aegis.service"])
+            .status();
+        let _ = fs::remove_file("/etc/systemd/system/bulwark-aegis.service");
+        let _ = Command::new("systemctl").args(["daemon-reload"]).status();
+        let _ = fs::remove_file(paths::system_confirmed_policy_path());
+    } else {
+        println!("✦ tip: sudo bulwark uninstall  — also clears boot restore unit");
+    }
     // flush firewall table best-effort
     let _ = aegis::flush_bulwark("bulwark", aegis::policy::Family::Inet);
+    let _ = fs::remove_file(paths::confirmed_policy_path());
+    let _ = fs::remove_file(paths::pending_policy_path());
     if purge {
         let d = paths::data_dir();
         let _ = fs::remove_dir_all(&d);
