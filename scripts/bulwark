@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# bulwark — thin launcher (never a prebuilt ELF in git)
+# Discovery: BULWARK_BIN → ~/.local/lib/faeos/bulwark → sibling tree
+set -euo pipefail
+
+CANDIDATES=(
+  "${BULWARK_BIN:-}"
+  "$HOME/.local/lib/faeos/bulwark"
+  "$HOME/bulwark/target/release/bulwark"
+  "${BULWARK_ROOT:-}/target/release/bulwark"
+)
+# when this script lives in <repo>/scripts/
+here="$(cd "$(dirname "$0")" && pwd)"
+if [[ -x "$here/../target/release/bulwark" ]]; then
+  CANDIDATES+=("$here/../target/release/bulwark")
+fi
+# faeos kit layout: bin/bulwark next to ../bulwark (legacy) — skip monorepo
+
+for c in "${CANDIDATES[@]}"; do
+  [[ -n "$c" && -x "$c" ]] || continue
+  exec "$c" "$@"
+done
+
+echo "bulwark: engine not built yet." >&2
+echo "  build:  git clone git@github.com:ElegantVW/bulwark.git ~/bulwark" >&2
+echo "          cd ~/bulwark && ./build.sh install" >&2
+exit 127
