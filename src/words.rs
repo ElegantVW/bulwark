@@ -1,9 +1,10 @@
 //! Plain-language helpers — themed names stay, kid sentences beside them.
+//! Posture must not flatter: missing / unknown wall ⇒ never SAFE.
 
 use crate::aegis;
 use crate::paths;
 use crate::purity::{self, Finding as PurityFinding};
-use crate::sentinel;
+use crate::sentinel::{self, Listener};
 use crate::ward::{self, Finding as WardFinding};
 use std::fs;
 
@@ -48,6 +49,20 @@ pub struct Posture {
     pub sentinel_line: String,
 }
 
+/// Inputs for mood math (pure — unit-tested).
+#[derive(Debug, Clone, Copy)]
+pub struct MoodInputs {
+    pub aegis: aegis::TableState,
+    pub purity_baseline_exists: bool,
+    pub purity_changed: usize,
+    pub ward_crit: usize,
+    pub ward_total: usize,
+    /// Sensitive fae ports bound on a non-loopback address.
+    pub exposed_ai_ports: usize,
+    /// Any non-loopback listening sockets (stranger-reachable binds).
+    pub public_listeners: usize,
+}
+
 pub fn plain_name(layer: &str) -> &'static str {
     match layer {
         "Bulwark" => "keeps this computer safe",
@@ -59,6 +74,80 @@ pub fn plain_name(layer: &str) -> &'static str {
     }
 }
 
+/// faeOS local AI / service ports that must stay on loopback when the wall is honest.
+pub fn fae_localhost_ports() -> &'static [u16] {
+    &[8080, 8081, 8082, 8083, 8090, 8091]
+}
+
+/// True if `local` (from /proc, e.g. `127.0.0.1:8080` or `[::1]:80`) is loopback-only.
+pub fn is_loopback_bind(local: &str) -> bool {
+    let host = if let Some(rest) = local.strip_prefix('[') {
+        match rest.split_once(']') {
+            Some((h, _)) => h,
+            None => return false,
+        }
+    } else {
+        match local.rsplit_once(':') {
+            Some((h, _)) => h,
+            None => local,
+        }
+    };
+    if host == "::1" || host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    // IPv4 loopback 127.0.0.0/8
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        return ip.is_loopback();
+    }
+    false
+}
+
+pub fn listener_port(local: &str) -> Option<u16> {
+    if let Some(rest) = local.strip_prefix('[') {
+        let (_, after) = rest.split_once(']')?;
+        let p = after.strip_prefix(':')?;
+        return p.parse().ok();
+    }
+    local.rsplit_once(':')?.1.parse().ok()
+}
+
+/// Count public binds and sensitive AI ports exposed past loopback.
+pub fn exposure_counts(listeners: &[Listener]) -> (usize /*public*/, usize /*exposed_ai*/) {
+    let mut public = 0usize;
+    let mut exposed_ai = 0usize;
+    let ai = fae_localhost_ports();
+    for l in listeners {
+        if is_loopback_bind(&l.local) {
+            continue;
+        }
+        public += 1;
+        if let Some(port) = listener_port(&l.local) {
+            if ai.contains(&port) {
+                exposed_ai += 1;
+            }
+        }
+    }
+    (public, exposed_ai)
+}
+
+/// Honest mood: never SAFE if wall missing/unknown, no photo, or AI port on the LAN.
+pub fn compute_mood(i: MoodInputs) -> Mood {
+    if i.ward_crit > 0 || i.purity_changed > 0 || i.exposed_ai_ports > 0 {
+        return Mood::Danger;
+    }
+    match i.aegis {
+        aegis::TableState::Exists => {}
+        aegis::TableState::Missing | aegis::TableState::Unknown => return Mood::Care,
+    }
+    if !i.purity_baseline_exists {
+        return Mood::Care;
+    }
+    if i.ward_total > 0 || i.public_listeners > 0 {
+        return Mood::Care;
+    }
+    Mood::Safe
+}
+
 pub fn gather_posture() -> Posture {
     let snap_table = paths::aegis_snapshot_path();
     let table_name = fs::read_to_string(&snap_table)
@@ -66,31 +155,38 @@ pub fn gather_posture() -> Posture {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("table").and_then(|x| x.as_str()).map(String::from))
         .unwrap_or_else(|| "bulwark".into());
-    let aegis_on = aegis::table_state(&table_name, aegis::policy::Family::Inet)
-        == aegis::TableState::Exists;
-    let aegis_line = match aegis::table_state(&table_name, aegis::policy::Family::Inet) {
-        aegis::TableState::Exists => "ON — lock is set".into(),
-        aegis::TableState::Missing => "OFF — door open to the network".into(),
+    let aegis_state = aegis::table_state(&table_name, aegis::policy::Family::Inet);
+    let aegis_line = match aegis_state {
+        aegis::TableState::Exists => "ON — front door lock is set".into(),
+        aegis::TableState::Missing => "OFF — front door is open to the network".into(),
         aegis::TableState::Unknown => {
-            "? — need root to check (sudo bulwark aegis status)".into()
+            "? — need permission to check the wall (ask a grown-up for sudo)".into()
         }
     };
 
     let bl_path = paths::purity_baseline_path();
-    let (purity_line, purity_changed) = if !bl_path.is_file() {
-        ("none — no photo yet (press 1)".into(), 0usize)
+    let (purity_line, purity_changed, purity_exists) = if !bl_path.is_file() {
+        ("none — no photo yet (Purity photo)".into(), 0usize, false)
     } else {
         match purity::load_baseline(&bl_path) {
             Ok(bl) => {
                 let f = purity::check(&bl);
                 let n = f.len();
                 if n == 0 {
-                    (format!("OK — photo of {} files matches", bl.files.len()), 0)
+                    (
+                        format!("OK — photo of {} files matches", bl.files.len()),
+                        0,
+                        true,
+                    )
                 } else {
-                    (format!("CHANGED! — {n} file(s) look different"), n)
+                    (
+                        format!("CHANGED! — {n} file(s) look different"),
+                        n,
+                        true,
+                    )
                 }
             }
-            Err(_) => ("photo unreadable".into(), 0),
+            Err(_) => ("photo unreadable".into(), 0, true),
         }
     };
 
@@ -109,21 +205,29 @@ pub fn gather_posture() -> Posture {
     };
 
     let listeners = sentinel::scan_listeners();
+    let (public_listeners, exposed_ai) = exposure_counts(&listeners);
     let n = listeners.len();
     let sentinel_line = if n == 0 {
         "no open windows".into()
+    } else if exposed_ai > 0 {
+        format!(
+            "{n} open window(s) · {exposed_ai} magic door(s) open to the whole network"
+        )
+    } else if public_listeners > 0 {
+        format!("{n} open window(s) · {public_listeners} stranger(s) could knock")
     } else {
-        format!("{n} open window(s) on the network")
+        format!("{n} open window(s) — only this computer")
     };
 
-    // Mood
-    let mood = if ward_crit > 0 || purity_changed > 0 {
-        Mood::Danger
-    } else if !aegis_on || !bl_path.is_file() || ward_total > 0 {
-        Mood::Care
-    } else {
-        Mood::Safe
-    };
+    let mood = compute_mood(MoodInputs {
+        aegis: aegis_state,
+        purity_baseline_exists: purity_exists,
+        purity_changed,
+        ward_crit,
+        ward_total,
+        exposed_ai_ports: exposed_ai,
+        public_listeners,
+    });
 
     Posture {
         mood,
@@ -153,57 +257,155 @@ pub fn purity_plain(f: &PurityFinding) -> String {
     match f {
         PurityFinding::Missing { path } => format!("missing — {path}"),
         PurityFinding::New { path } => format!("new file — {path}"),
-        PurityFinding::Changed { path, reason } => {
-            format!("changed ({reason}) — {path}")
-        }
+        PurityFinding::Changed { path, reason } => format!("changed ({reason}) — {path}"),
     }
 }
 
 pub fn sentinel_plain_lines() -> Vec<String> {
-    let list = sentinel::scan_listeners();
-    if list.is_empty() {
-        return vec!["(no open windows right now)".into()];
+    let listeners = sentinel::scan_listeners();
+    let mut lines = Vec::new();
+    let (public, exposed_ai) = exposure_counts(&listeners);
+    if exposed_ai > 0 {
+        lines.push(format!(
+            "Careful: {exposed_ai} fae service port(s) are open past this computer."
+        ));
+    } else if public > 0 {
+        lines.push(format!(
+            "{public} window(s) face the network (not only this computer)."
+        ));
     }
-    list.iter()
-        .map(|l| {
-            let only = if l.local.starts_with("127.0.0.1")
-                || l.local.starts_with("[::1]")
-                || l.local.contains("127.0.0.1")
-            {
-                " · only this computer"
-            } else {
-                " · on the network"
-            };
-            let prog = l.comm.as_deref().unwrap_or("?");
-            format!("{}  ·  {prog}{only}", l.local)
-        })
-        .collect()
+    for l in listeners.iter().take(12) {
+        let where_ = if is_loopback_bind(&l.local) {
+            "only here"
+        } else {
+            "network"
+        };
+        lines.push(format!(
+            "{} {} ({}) {}",
+            l.proto,
+            l.local,
+            where_,
+            l.comm.as_deref().unwrap_or("?")
+        ));
+    }
+    if listeners.len() > 12 {
+        lines.push(format!("… and {} more", listeners.len() - 12));
+    }
+    if lines.is_empty() {
+        lines.push("no open windows".into());
+    }
+    lines
 }
 
 pub fn help_lines() -> Vec<String> {
     vec![
-        "Bulwark keeps this computer safe.".into(),
+        "Bulwark — your shield for this computer.".into(),
+        "Seal locks the glass (screen). Bulwark watches the house (network).".into(),
         "".into(),
-        "Aegis   — front-door lock (firewall)".into(),
+        "Aegis   — front-door lock (who can knock)".into(),
         "Purity  — photo of important files".into(),
         "Ward    — search for sneaky stuff".into(),
-        "Sentinel— watches open network windows".into(),
+        "Sentinel— open network windows".into(),
         "".into(),
-        "SAFE  = looking good".into(),
-        "CARE  = something to do (or lock off)".into(),
-        "DANGER= look at Ward or Purity soon".into(),
+        "SAFE  = wall ON, photo OK, no stranger doors".into(),
+        "CARE  = something to do (wall off, no photo, …)".into(),
+        "DANGER= look at Ward, Purity, or open magic doors".into(),
         "".into(),
-        "Press a number on the home screen.".into(),
-        "Grown-up password (sudo) may be needed for Aegis.".into(),
+        "Install alone does not raise the wall.".into(),
+        "Raise Aegis (menu) may need a grown-up password.".into(),
+        "Human: Ward report · Aegis protect · Purity photo".into(),
     ]
 }
 
-/// True when the user has finished (or skipped) the first tour.
 pub fn tutorial_done() -> bool {
-    paths::tutorial_done_path().is_file()
+    paths::data_dir().join("tutorial.done").is_file()
 }
 
 pub fn mark_tutorial_done() {
     let _ = paths::ensure_dirs();
-    let _ = fs::write(paths::tutorial_done_path(), b"ok\n");
+    let _ = fs::write(paths::data_dir().join("tutorial.done"), b"1\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::aegis::TableState;
+
+    fn base() -> MoodInputs {
+        MoodInputs {
+            aegis: TableState::Exists,
+            purity_baseline_exists: true,
+            purity_changed: 0,
+            ward_crit: 0,
+            ward_total: 0,
+            exposed_ai_ports: 0,
+            public_listeners: 0,
+        }
+    }
+
+    #[test]
+    fn mood_safe_only_when_all_green() {
+        assert_eq!(compute_mood(base()), Mood::Safe);
+    }
+
+    #[test]
+    fn mood_never_safe_if_wall_missing() {
+        let mut i = base();
+        i.aegis = TableState::Missing;
+        assert_eq!(compute_mood(i), Mood::Care);
+    }
+
+    #[test]
+    fn mood_never_safe_if_wall_unknown() {
+        let mut i = base();
+        i.aegis = TableState::Unknown;
+        assert_eq!(compute_mood(i), Mood::Care);
+    }
+
+    #[test]
+    fn mood_never_safe_without_purity_photo() {
+        let mut i = base();
+        i.purity_baseline_exists = false;
+        assert_eq!(compute_mood(i), Mood::Care);
+    }
+
+    #[test]
+    fn mood_danger_if_ai_port_on_lan() {
+        let mut i = base();
+        i.exposed_ai_ports = 1;
+        assert_eq!(compute_mood(i), Mood::Danger);
+    }
+
+    #[test]
+    fn mood_danger_on_ward_crit() {
+        let mut i = base();
+        i.ward_crit = 1;
+        i.ward_total = 1;
+        assert_eq!(compute_mood(i), Mood::Danger);
+    }
+
+    #[test]
+    fn loopback_binds_detected() {
+        assert!(is_loopback_bind("127.0.0.1:8080"));
+        assert!(is_loopback_bind("[::1]:8080"));
+        assert!(!is_loopback_bind("0.0.0.0:8080"));
+        assert!(!is_loopback_bind("192.168.1.5:22"));
+    }
+
+    #[test]
+    fn desktop_profile_has_no_ssh() {
+        let text = include_str!("../policy/desktop.aegis");
+        for line in text.lines() {
+            let t = line.split('#').next().unwrap_or("").trim();
+            if t.is_empty() {
+                continue;
+            }
+            assert!(
+                !(t.contains("tcp 22") && t.starts_with("allow")),
+                "desktop must not allow SSH: {t}"
+            );
+        }
+        let ssh = include_str!("../policy/server-ssh.aegis");
+        assert!(ssh.contains("tcp 22"), "server-ssh should allow 22");
+    }
 }

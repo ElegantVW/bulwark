@@ -1,50 +1,70 @@
 # Bulwark
 
-faeOS first-party host protection: firewall (**Aegis**), integrity (**Purity**),
-listeners (**Sentinel**), and hostile-pattern hunt (**Ward**).
+faeOS **host ward**: front-door network lock (**Aegis**), file photo (**Purity**),
+open windows (**Sentinel**), sneaky-stuff hunt (**Ward**).
 
-Rust single binary. **Zero** runtime security-product package deps — no ufw,
-nft CLI, clamav, or fail2ban. Kernel talk is in-tree `NETLINK_NETFILTER`
-(nf_tables).
+**Seal** (screen lock / greeter) is a different tool — it seals the *glass*.
+Bulwark watches the *house*. Do not merge them.
 
-Source-only repo (no prebuilt programs in git).
+Linux personal host. Source-only (no prebuilt programs in git). Not an
+enterprise claim: when Aegis is raised, strangers do not get a free inbound
+door, and the shield **does not lie** about that.
 
 ## Requirements
 
 - Linux (nftables / netlink)
 - Rust stable (`cargo`)
-- Root for `aegis apply` / `undo`
+- Root (sudo) to **raise / release** Aegis
 
-## Build & install (plug-and-play with faeOS)
+## Build & plug into faeOS
 
 ```bash
 git clone git@github.com:ElegantVW/bulwark.git ~/bulwark
 cd ~/bulwark && ./build.sh install
 ```
 
-That writes:
-
 | What | Where |
 |------|--------|
 | Real binary | `~/.local/lib/faeos/bulwark` |
 | Public command | `~/bin/bulwark` (thin launcher) |
 
-If faeOS is installed, its `bulwark` wrapper finds the engine automatically.
-You can also only `cargo build --release` and keep the tree at `~/bulwark` —
-launchers look there too.
+Install alone does **not** raise the wall. Next:
 
-### Discovery order
+```bash
+sudo bulwark aegis apply desktop   # raise Aegis (deadman starts)
+bulwark aegis confirm              # keep the lock
+bulwark                            # look — mood must tell truth
+```
 
-1. `$BULWARK_BIN`
-2. `~/.local/lib/faeos/bulwark`
-3. `~/bulwark/target/release/bulwark`
+Profiles: **`desktop`** (default laptop — **no SSH**), `strict`, `server-ssh` (opens 22).
 
-Full contract: [faeOS docs/engines.md](https://github.com/ElegantVW/faeOS/blob/main/docs/engines.md).
+Full engines contract: [faeOS docs/engines.md](https://github.com/ElegantVW/faeOS/blob/main/docs/engines.md).
 
-## CLI
+## Voice (humans)
+
+| You say | Machine |
+|---------|---------|
+| bare `bulwark` | TUI — full look at the shield |
+| `bulwark status` / look | one-shot plain report |
+| Raise Aegis / Aegis protect | `sudo bulwark aegis apply desktop` + confirm |
+| Release Aegis | `sudo bulwark aegis undo` |
+| Ward report | `bulwark ward` |
+| Purity photo | `bulwark purity baseline` |
+
+No devops hospital words. All ages.
+
+## SAFE / CARE / DANGER
+
+- **SAFE** — Aegis ON in the kernel, Purity photo OK, no Ward crises, no fae AI ports on the LAN.
+- **CARE** — wall off, cannot check wall, no photo yet, soft findings, or public windows.
+- **DANGER** — Ward serious, files changed, or a magic service port faces the whole network.
+
+Missing wall ⇒ **never** SAFE.
+
+## CLI (scripts)
 
 ```
-bulwark                  # friendly TUI (default)
+bulwark                  # TUI
 bulwark status|ports|ward
 bulwark aegis show|status|apply <profile>|confirm|undo
 bulwark purity baseline|check
@@ -52,39 +72,18 @@ bulwark install|uninstall [--purge]
 bulwark tour
 ```
 
-Profiles (embedded): `desktop`, `strict`, `server-ssh`.
+## Break-glass (operator)
 
-### Firewall apply (root)
+If a bad raise locks you out of something you need, from a local console:
 
 ```bash
-sudo bulwark aegis apply desktop
-bulwark aegis confirm    # within deadman window (~90s)
 sudo bulwark aegis undo
+# or: sudo nft delete table inet bulwark
 ```
-
-## Layers
-
-| Layer | What |
-|-------|------|
-| **Sentinel** | `/proc/net/*` listeners → PID/comm |
-| **Aegis** | Policy → nf_tables table `bulwark`; apply/undo; deadman confirm |
-| **Purity** | SHA-256 baselines; change / SUID detection |
-| **Ward** | Hostile patterns (writable PATH, LD_PRELOAD, deleted exe, …) |
 
 ## State
 
 `$XDG_DATA_HOME/faeos/bulwark/` (or `BULWARK_DIR`).
-
-## faeOS
-
-Part of the [faeOS](https://github.com/ElegantVW/faeOS) terminal ecosystem.
-Canonical tree is this repo (`ElegantVW/bulwark`), not a monorepo vendor copy.
-
-```bash
-git clone git@github.com:ElegantVW/faeOS.git ~/faeos
-cd ~/faeos && ./install.sh
-# then build bulwark as above — seamless
-```
 
 ## License
 

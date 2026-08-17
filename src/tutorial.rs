@@ -42,6 +42,8 @@ const PAGES: &[&[&str]] = &[
         "The home screen",
         "",
         "You will see SAFE, CARE, or DANGER.",
+        "SAFE only if the wall is ON and nothing shady shows.",
+        "Install alone does not raise the wall — Raise Aegis does.",
         "Then a list of numbers — just type one.",
         "  1 Purity photo · 2 Ward search · 3 windows",
         "  4 lock ON · 5 lock OFF · 7 this tour again",

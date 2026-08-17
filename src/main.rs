@@ -141,29 +141,33 @@ fn cmd_tour() -> Result<()> {
 
 fn cmd_status() -> Result<()> {
     let _ = paths::ensure_dirs()?;
+    let p = words::gather_posture();
     let listeners = sentinel::scan_listeners();
-    let netlink_ok = aegis::aegis_available();
-    let baseline = paths::purity_baseline_path();
-    let purity = if baseline.is_file() {
-        match purity::load_baseline(&baseline) {
-            Ok(bl) => {
-                let f = purity::check(&bl);
-                format!("baseline ok · {} files · {} findings", bl.files.len(), f.len())
-            }
-            Err(e) => format!("baseline unreadable: {e}"),
-        }
-    } else {
-        "no baseline (run: bulwark purity baseline)".into()
-    };
-    let ward_n = ward::hunt().len();
+    let (public, exposed_ai) = words::exposure_counts(&listeners);
 
-    println!("✦ Bulwark status");
-    println!("  aegis netlink:  {}", if netlink_ok { "available" } else { "unavailable" });
-    println!("  aegis state:    {}", aegis_state_line());
-    println!("  sentinel:       {} listening sockets", listeners.len());
-    println!("  purity:         {purity}");
-    println!("  ward:           {ward_n} finding(s)");
-    println!("  data:           {}", paths::data_dir().display());
+    println!("✦ Bulwark — look");
+    println!("  mood:     {}", p.mood.banner());
+    println!("  Aegis:    {}", p.aegis_line);
+    println!("  Purity:   {}", p.purity_line);
+    println!("  Ward:     {}", p.ward_line);
+    println!("  Sentinel: {}", p.sentinel_line);
+    if exposed_ai > 0 {
+        println!(
+            "  note:     {exposed_ai} fae port(s) face the network — not SAFE until fixed"
+        );
+    } else if public > 0 {
+        println!("  note:     {public} window(s) strangers could knock on");
+    }
+    println!("  data:     {}", paths::data_dir().display());
+    if p.mood == words::Mood::Safe {
+        println!("  (wall ON, photo OK, no stranger magic doors)");
+    } else if matches!(
+        aegis::table_state("bulwark", aegis::policy::Family::Inet),
+        aegis::TableState::Missing
+    ) {
+        println!("  next:     raise Aegis — sudo bulwark aegis apply desktop");
+        println!("            then: bulwark aegis confirm");
+    }
     Ok(())
 }
 

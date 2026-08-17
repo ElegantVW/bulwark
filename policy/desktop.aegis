@@ -1,5 +1,6 @@
-# Bulwark Aegis policy — desktop
-# default deny inbound, allow outbound, loopback free, SSH optional
+# Bulwark Aegis policy — desktop (personal laptop default)
+# default deny inbound, allow outbound, loopback free
+# SSH is NOT opened here — use profile server-ssh if you need it
 
 table bulwark
 family inet
@@ -10,7 +11,6 @@ default forward drop
 
 allow lo
 allow established
-allow in tcp 22
 # faeOS local LLM / services (loopback only — enforced as 127.0.0.1)
 allow in tcp 8080 from 127.0.0.1
 allow in tcp 8081 from 127.0.0.1

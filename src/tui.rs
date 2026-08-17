@@ -24,11 +24,11 @@ const SGR0: &str = "\x1b[27m";
 
 /// Home menu entries (arrow-selected).
 const HOME_MENU: &[&str] = &[
-    "1  Purity — take a photo of important files",
-    "2  Ward — search for sneaky stuff",
+    "1  Purity photo — remember important files",
+    "2  Ward report — search for sneaky stuff",
     "3  Sentinel — see open windows",
-    "4  Aegis — turn the lock ON  (may need password)",
-    "5  Aegis — turn the lock OFF / undo",
+    "4  Raise Aegis — lock the front door (may need password)",
+    "5  Release Aegis — open the front door / undo",
     "6  Keep watching (install helper)",
     "7  Tour — short tutorial",
     "?  Help",
