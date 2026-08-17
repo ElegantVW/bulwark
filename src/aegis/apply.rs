@@ -110,7 +110,9 @@ fn apply_policy(policy: &Policy, policy_sha: &str, snapshot_path: &Path) -> Resu
         }
         eprintln!("chain msg hex: {}", hex::encode(&msgs[2]));
     }
-    nl.send_batch(&msgs).context("batch apply (nf_tables)")?;
+    nl.send_batch(&msgs).context(
+        "Aegis could not raise the wall (kernel firewall said no)",
+    )?;
 
     // Only record intent once the kernel actually holds the table.
     if let Some(parent) = snapshot_path.parent() {
@@ -127,7 +129,7 @@ fn apply_policy(policy: &Policy, policy_sha: &str, snapshot_path: &Path) -> Resu
     Ok(AegisApplyResult {
         ok: true,
         message: format!(
-            "applied table '{}' ({} rules) via netlink nf_tables (atomic batch)",
+            "Aegis raised — table '{}' holding ({} wards in the wall)",
             table,
             policy.rules.len()
         ),

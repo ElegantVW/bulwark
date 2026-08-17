@@ -53,13 +53,12 @@ pub const NFTA_LIST_ELEM: u16 = 1;
 pub const NFTA_EXPR_NAME: u16 = 1;
 pub const NFTA_EXPR_DATA: u16 = 2;
 
-// meta
-pub const NFTA_META_KEY: u16 = 1;
-pub const NFTA_META_DREG: u16 = 2;
-pub const NFT_META_NFPROTO: u32 = 0;
-pub const NFT_META_L4PROTO: u32 = 15;
-pub const NFT_META_IIFTYPE: u32 = 3; // actually check - use iifname via meta
-pub const NFT_META_IIFNAME: u32 = 5;
+// meta — uapi: NFTA_META_DREG=1, NFTA_META_KEY=2; keys from enum nft_meta_keys
+pub const NFTA_META_DREG: u16 = 1;
+pub const NFTA_META_KEY: u16 = 2;
+pub const NFT_META_NFPROTO: u32 = 15;
+pub const NFT_META_L4PROTO: u32 = 16;
+pub const NFT_META_IIFNAME: u32 = 6;
 
 // cmp
 pub const NFTA_CMP_SREG: u16 = 1;
@@ -91,10 +90,10 @@ pub const NFT_CONTINUE: i32 = -5; // not used
 pub const NF_DROP: u32 = 0;
 pub const NF_ACCEPT: u32 = 1;
 
-// ct
-pub const NFTA_CT_KEY: u16 = 1;
-pub const NFTA_CT_DREG: u16 = 2;
-pub const NFT_CT_STATE: u32 = 2;
+// ct — uapi: NFTA_CT_DREG=1, NFTA_CT_KEY=2; NFT_CT_STATE=0
+pub const NFTA_CT_DREG: u16 = 1;
+pub const NFTA_CT_KEY: u16 = 2;
+pub const NFT_CT_STATE: u32 = 0;
 // state bits ESTABLISHED|RELATED
 pub const CT_STATE_ESTABLISHED: u32 = 2;
 pub const CT_STATE_RELATED: u32 = 4;
@@ -272,7 +271,8 @@ impl Netlink {
             }
             let (ack_this_recv, first_err) = scan_replies(&rbuf[..n as usize])?;
             if let Some(e) = first_err {
-                return Err(io::Error::from_raw_os_error(-e)).context("nf_tables batch NACK");
+                return Err(io::Error::from_raw_os_error(-e))
+                    .context("kernel rejected the Aegis batch");
             }
             if ack_this_recv {
                 saw_ack = true;
@@ -421,12 +421,14 @@ pub fn nla_put_str(attr_type: u16, s: &str) -> Vec<u8> {
     nla_put(attr_type, &body)
 }
 
+/// nf_tables integer attributes are network-endian (`nla_get_be32` in-kernel).
+/// Host-endian here made hooknum 1 read as 0x01000000 → EOPNOTSUPP on NEWCHAIN.
 pub fn nla_put_u32(attr_type: u16, v: u32) -> Vec<u8> {
-    nla_put(attr_type, &v.to_ne_bytes())
+    nla_put(attr_type, &v.to_be_bytes())
 }
 
 pub fn nla_put_u16(attr_type: u16, v: u16) -> Vec<u8> {
-    nla_put(attr_type, &v.to_ne_bytes())
+    nla_put(attr_type, &v.to_be_bytes())
 }
 
 pub fn nla_put_u8(attr_type: u16, v: u8) -> Vec<u8> {
@@ -467,7 +469,7 @@ fn parse_ack(buf: &[u8]) -> Result<()> {
                 let err = i32::from_ne_bytes(ebytes);
                 if err != 0 {
                     let e = io::Error::from_raw_os_error(-err);
-                    return Err(e).context("nf_tables netlink NACK");
+                    return Err(e).context("kernel rejected an Aegis message");
                 }
             }
             return Ok(());
@@ -485,11 +487,12 @@ fn parse_ack(buf: &[u8]) -> Result<()> {
 pub fn msg_new_table(seq: u32, family: u8, name: &str) -> Vec<u8> {
     let mut payload = Vec::new();
     payload.extend(nla_put_str(NFTA_TABLE_NAME, name));
-    nlmsg(
+    nlmsg_raw(
         seq,
         nft_msg_type(NFT_MSG_NEWTABLE),
-        NLM_F_CREATE | NLM_F_ACK,
+        NLM_F_REQUEST | NLM_F_CREATE,
         family,
+        0,
         &payload,
     )
 }
@@ -538,11 +541,13 @@ pub fn msg_new_base_chain(
     hook.extend(nla_put_u32(NFTA_HOOK_PRIORITY, priority as u32));
     payload.extend(nla_nested(NFTA_CHAIN_HOOK, &hook));
     payload.extend(nla_put_u32(NFTA_CHAIN_POLICY, policy));
-    nlmsg(
+    // Match libnftnl/nft: no per-message ACK inside a batch (batch_end carries it).
+    nlmsg_raw(
         seq,
         nft_msg_type(NFT_MSG_NEWCHAIN),
-        NLM_F_CREATE | NLM_F_ACK,
+        NLM_F_REQUEST | NLM_F_CREATE,
         family,
+        0,
         &payload,
     )
 }
@@ -709,11 +714,12 @@ pub fn msg_new_rule(seq: u32, family: u8, table: &str, chain: &str, exprs: &[u8]
     payload.extend(nla_put_str(NFTA_RULE_TABLE, table));
     payload.extend(nla_put_str(NFTA_RULE_CHAIN, chain));
     payload.extend(nla_nested(NFTA_RULE_EXPRESSIONS, exprs));
-    nlmsg(
+    nlmsg_raw(
         seq,
         nft_msg_type(NFT_MSG_NEWRULE),
-        NLM_F_CREATE | NLM_F_APPEND | NLM_F_ACK,
+        NLM_F_REQUEST | NLM_F_CREATE | NLM_F_APPEND,
         family,
+        0,
         &payload,
     )
 }
