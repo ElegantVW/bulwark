@@ -1,15 +1,15 @@
 //! Everyday Bulwark TUI — fixed layout + arrow-key menu navigation.
 //! Themed names kept; plain one-liners; digit shortcuts still work.
 
-use crate::aegis;
 use crate::paths;
 use crate::purity;
 use crate::tutorial;
 use crate::ward;
 use crate::words::{self, Posture};
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
@@ -771,66 +771,29 @@ fn compare_photo() -> String {
 }
 
 fn run_aegis_apply() -> Result<String> {
-    let text = aegis::load_bundled_profile("desktop")?;
-    let _ = paths::ensure_dirs();
-    match aegis::apply_policy_text(&text, &paths::aegis_snapshot_path()) {
-        Ok(res) => {
-            // kernel accepted — only now record the current policy
-            fs::write(paths::policy_path(), &text)?;
-            let marker = paths::data_dir().join("aegis").join("confirm.ok");
-            let _ = fs::remove_file(&marker);
-            if let Ok(exe) = std::env::current_exe() {
-                // one detached deadman watcher (single spawn)
-                let _ = Command::new(&exe)
-                    .args(["aegis", "undo", "--table", "bulwark"])
-                    .env("BULWARK_DEADMAN", "90")
-                    .env("BULWARK_CONFIRM_PATH", &marker)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn();
-            }
-            Ok(format!("{} — confirm to keep.", res.message))
-        }
-        Err(e) => {
-            let status = Command::new("sudo")
-                .args([
-                    "-n",
-                    "bulwark",
-                    "aegis",
-                    "apply",
-                    "desktop",
-                    "--deadman",
-                    "90",
-                ])
-                .status();
-            match status {
-                Ok(s) if s.success() => {
-                    Ok("Aegis lock applied. Press enter/y to keep it.".into())
-                }
-                _ => Err(e),
-            }
-        }
+    // CLI self-elevates via sudo (password prompt) — no stored secrets.
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("bulwark"));
+    let status = Command::new(&exe)
+        .args(["aegis", "apply", "desktop", "--deadman", "90"])
+        .status()
+        .context("raise Aegis")?;
+    if status.success() {
+        Ok("Aegis raised — press y to keep the lock (confirm).".into())
+    } else {
+        bail!("could not raise Aegis (password cancelled, or the wall refused)")
     }
 }
 
 fn run_aegis_undo() -> Result<String> {
-    match aegis::flush_bulwark("bulwark", aegis::policy::Family::Inet) {
-        Ok(()) => {
-            let _ = fs::remove_file(paths::aegis_snapshot_path());
-            Ok("Aegis lock removed.".into())
-        }
-        Err(e) => {
-            let status = Command::new("sudo")
-                .args(["-n", "bulwark", "aegis", "undo"])
-                .status();
-            if status.map(|s| s.success()).unwrap_or(false) {
-                let _ = fs::remove_file(paths::aegis_snapshot_path());
-                Ok("Aegis lock removed (sudo).".into())
-            } else {
-                Err(e)
-            }
-        }
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("bulwark"));
+    let status = Command::new(&exe)
+        .args(["aegis", "undo"])
+        .status()
+        .context("release Aegis")?;
+    if status.success() {
+        Ok("Aegis released — front door open again.".into())
+    } else {
+        bail!("could not release Aegis")
     }
 }
 

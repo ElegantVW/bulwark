@@ -31,14 +31,14 @@ cd ~/bulwark && ./build.sh install
 Install alone does **not** raise the wall. Next:
 
 ```bash
-# sudo does not see ~/bin — build.sh install plants /usr/local/bin/bulwark.
-# If needed once:  sudo install -m 755 ~/bulwark/scripts/bulwark /usr/local/bin/bulwark
-# Or call the engine:  sudo ~/.local/lib/faeos/bulwark aegis apply desktop
+# Raise / release / system-install ask for your password via sudo when needed.
+# Bulwark never stores or prints that password. State stays under *your* home
+# (even when elevated), not /root.
 
-sudo bulwark aegis apply desktop   # raise Aegis (deadman starts)
-bulwark aegis confirm              # keep the lock
-sudo bulwark install --system      # restore wall on reboot
-bulwark                            # look — mood must tell truth
+bulwark aegis apply desktop    # prompts for password, then raises Aegis
+bulwark aegis confirm          # keep the lock (no password)
+bulwark install --system       # prompts again — wall restores on reboot
+bulwark                        # look — mood must tell truth
 ```
 
 Profiles: **`desktop`** (default laptop — **no SSH**), `strict`, `server-ssh` (opens 22).
