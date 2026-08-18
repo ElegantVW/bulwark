@@ -6,9 +6,15 @@ open windows (**Sentinel**), sneaky-stuff hunt (**Ward**).
 **Seal** (screen lock / greeter) is a different tool — it seals the *glass*.
 Bulwark watches the *house*. Do not merge them.
 
-Linux personal host. Source-only (no prebuilt programs in git). Not an
-enterprise claim: when Aegis is raised, strangers do not get a free inbound
-door, and the shield **does not lie** about that.
+Linux personal host. Source-only (no prebuilt programs in git).
+
+**Ambition (path D):** someday survive cold professional review and become the
+default faeOS host ward for most users — **small steps**, evidence each time.
+
+**Now:** when Aegis is raised, strangers do not get a free inbound door, and the
+shield **does not lie**. Next gates: [docs/TRUST.md](docs/TRUST.md) (Bulwark is
+not the attacker) → [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) (sandbox attack
+cards). Agent notes: [AGENTS.md](AGENTS.md).
 
 ## Requirements
 
