@@ -180,13 +180,19 @@ fn read_exe(pid: u32) -> Option<String> {
 }
 
 pub fn format_table(listeners: &[Listener]) -> String {
-    let mut s = String::from("PROTO   STATE        LOCAL                    PID    COMM\n");
-    for l in listeners {
+    use crate::words::{bind_face_label, is_loopback_bind};
+    let mut s = String::from(
+        "PROTO   STATE        LOCAL                    FACE            PID    COMM\n",
+    );
+    let mut ordered: Vec<&Listener> = listeners.iter().collect();
+    ordered.sort_by_key(|l| is_loopback_bind(&l.local));
+    for l in ordered {
         s.push_str(&format!(
-            "{:<7} {:<12} {:<24} {:<6} {}\n",
+            "{:<7} {:<12} {:<24} {:<15} {:<6} {}\n",
             l.proto,
             l.state,
             l.local,
+            bind_face_label(&l.local),
             l.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into()),
             l.comm.as_deref().unwrap_or("-")
         ));

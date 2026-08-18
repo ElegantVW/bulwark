@@ -81,12 +81,24 @@ bulwark install|uninstall [--purge]
 bulwark tour
 ```
 
+## Verify checklist (second machine / after reboot)
+
+```bash
+bulwark status                 # never SAFE if wall missing
+bulwark aegis apply desktop    # password prompt
+bulwark aegis confirm
+bulwark install --system
+# reboot, then:
+systemctl status bulwark-aegis.service --no-pager
+# optional: sudo nft list table inet bulwark | head
+```
+
 ## Break-glass (operator)
 
 If a bad raise locks you out of something you need, from a local console:
 
 ```bash
-sudo bulwark aegis undo
+bulwark aegis undo             # password prompt
 # or: sudo nft delete table inet bulwark
 ```
 

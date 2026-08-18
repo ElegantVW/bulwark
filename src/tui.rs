@@ -621,7 +621,7 @@ fn draw_sentinel(cache: &mut ScanCache, list_sel: usize, scroll: usize) -> Strin
     let rows = cache.sentinel();
     let mut lines = vec![
         "Sentinel — open network windows".into(),
-        "These doors listen on the network right now.".into(),
+        "✦ = magic fae door on the whole network (bad). [only here] = safe.".into(),
         "".into(),
     ];
     let vis = 12usize;

@@ -38,15 +38,19 @@ pub fn default_roots() -> Vec<PathBuf> {
         PathBuf::from("/etc/sudoers"),
         PathBuf::from("/etc/ssh"),
     ];
-    if let Ok(home) = std::env::var("HOME") {
-        roots.push(PathBuf::from(home).join("bin"));
+    let home = crate::paths::invoking_home();
+    let bin = home.join("bin");
+    if bin.is_dir() {
+        roots.push(bin);
     }
-    // faeOS kit if present
-    if let Ok(home) = std::env::var("HOME") {
-        let fae = PathBuf::from(home).join("faeos").join("bin");
-        if fae.is_dir() {
-            roots.push(fae);
-        }
+    let fae_bin = home.join("faeos").join("bin");
+    if fae_bin.is_dir() {
+        roots.push(fae_bin);
+    }
+    // Installed engines (source-only kit builds land here)
+    let engines = home.join(".local").join("lib").join("faeos");
+    if engines.is_dir() {
+        roots.push(engines);
     }
     roots
 }

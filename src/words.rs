@@ -79,27 +79,39 @@ pub fn fae_localhost_ports() -> &'static [u16] {
     &[8080, 8081, 8082, 8083, 8090, 8091]
 }
 
-/// True if `local` (from /proc, e.g. `127.0.0.1:8080` or `[::1]:80`) is loopback-only.
-pub fn is_loopback_bind(local: &str) -> bool {
-    let host = if let Some(rest) = local.strip_prefix('[') {
+fn bind_host(local: &str) -> &str {
+    if let Some(rest) = local.strip_prefix('[') {
         match rest.split_once(']') {
             Some((h, _)) => h,
-            None => return false,
+            None => local,
         }
     } else {
         match local.rsplit_once(':') {
             Some((h, _)) => h,
             None => local,
         }
-    };
+    }
+}
+
+/// True if `local` (from /proc, e.g. `127.0.0.1:8080` or `[::1]:80`) is loopback-only.
+pub fn is_loopback_bind(local: &str) -> bool {
+    let host = bind_host(local);
     if host == "::1" || host.eq_ignore_ascii_case("localhost") {
         return true;
     }
-    // IPv4 loopback 127.0.0.0/8
     if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
         return ip.is_loopback();
     }
     false
+}
+
+/// `0.0.0.0` / `::` — listening on every face of the machine.
+pub fn is_wildcard_bind(local: &str) -> bool {
+    let host = bind_host(local);
+    host == "0.0.0.0"
+        || host == "*"
+        || host == "::"
+        || host.eq_ignore_ascii_case("::0")
 }
 
 pub fn listener_port(local: &str) -> Option<u16> {
@@ -111,7 +123,40 @@ pub fn listener_port(local: &str) -> Option<u16> {
     local.rsplit_once(':')?.1.parse().ok()
 }
 
-/// Count public binds and sensitive AI ports exposed past loopback.
+/// Plain face label for Sentinel rows.
+pub fn bind_face_label(local: &str) -> &'static str {
+    if is_loopback_bind(local) {
+        "only here"
+    } else if is_wildcard_bind(local) {
+        "whole network"
+    } else {
+        "network"
+    }
+}
+
+/// Pixie / llama / kur family — should not face the LAN.
+pub fn is_fae_service_comm(comm: Option<&str>) -> bool {
+    let Some(c) = comm else {
+        return false;
+    };
+    let c = c.to_ascii_lowercase();
+    matches!(
+        c.as_str(),
+        "pixie"
+            | "llama-server"
+            | "llama_server"
+            | "kur"
+            | "kur-server"
+            | "magpie"
+            | "ask"
+            | "imp"
+            | "menagerie"
+            | "murmur"
+            | "siren"
+    ) || c.contains("llama")
+}
+
+/// Count public binds and sensitive AI / fae doors past loopback.
 pub fn exposure_counts(listeners: &[Listener]) -> (usize /*public*/, usize /*exposed_ai*/) {
     let mut public = 0usize;
     let mut exposed_ai = 0usize;
@@ -121,10 +166,10 @@ pub fn exposure_counts(listeners: &[Listener]) -> (usize /*public*/, usize /*exp
             continue;
         }
         public += 1;
-        if let Some(port) = listener_port(&l.local) {
-            if ai.contains(&port) {
-                exposed_ai += 1;
-            }
+        let port_hit = listener_port(&l.local).is_some_and(|p| ai.contains(&p));
+        let fae_hit = is_fae_service_comm(l.comm.as_deref());
+        if port_hit || fae_hit {
+            exposed_ai += 1;
         }
     }
     (public, exposed_ai)
@@ -265,33 +310,45 @@ pub fn sentinel_plain_lines() -> Vec<String> {
     let listeners = sentinel::scan_listeners();
     let mut lines = Vec::new();
     let (public, exposed_ai) = exposure_counts(&listeners);
+    lines.push("Windows strangers can knock on  ·  only-here = safe face".into());
     if exposed_ai > 0 {
         lines.push(format!(
-            "Careful: {exposed_ai} fae service port(s) are open past this computer."
+            "⚠ A magic door is open to the whole network ({exposed_ai})."
         ));
     } else if public > 0 {
         lines.push(format!(
             "{public} window(s) face the network (not only this computer)."
         ));
+    } else {
+        lines.push("All listed doors are only on this computer.".into());
     }
-    for l in listeners.iter().take(12) {
-        let where_ = if is_loopback_bind(&l.local) {
-            "only here"
+    lines.push(String::new());
+    // Strangers first, then localhost.
+    let mut ordered: Vec<&Listener> = listeners.iter().collect();
+    ordered.sort_by_key(|l| is_loopback_bind(&l.local));
+    for l in ordered.iter().take(14) {
+        let face = bind_face_label(&l.local);
+        let mark = if !is_loopback_bind(&l.local)
+            && (listener_port(&l.local).is_some_and(|p| fae_localhost_ports().contains(&p))
+                || is_fae_service_comm(l.comm.as_deref()))
+        {
+            "✦ "
+        } else if !is_loopback_bind(&l.local) {
+            "· "
         } else {
-            "network"
+            "  "
         };
         lines.push(format!(
-            "{} {} ({}) {}",
+            "{mark}{:<5} {:<22} [{face}] {}",
             l.proto,
             l.local,
-            where_,
             l.comm.as_deref().unwrap_or("?")
         ));
     }
-    if listeners.len() > 12 {
-        lines.push(format!("… and {} more", listeners.len() - 12));
+    if listeners.len() > 14 {
+        lines.push(format!("… and {} more", listeners.len() - 14));
     }
-    if lines.is_empty() {
+    if listeners.is_empty() {
         lines.push("no open windows".into());
     }
     lines
@@ -390,6 +447,11 @@ mod tests {
         assert!(is_loopback_bind("[::1]:8080"));
         assert!(!is_loopback_bind("0.0.0.0:8080"));
         assert!(!is_loopback_bind("192.168.1.5:22"));
+        assert!(is_wildcard_bind("0.0.0.0:8080"));
+        assert!(is_wildcard_bind("[::]:443"));
+        assert!(!is_wildcard_bind("192.168.1.5:22"));
+        assert!(is_fae_service_comm(Some("llama-server")));
+        assert!(!is_fae_service_comm(Some("firefox")));
     }
 
     #[test]

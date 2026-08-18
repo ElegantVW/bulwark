@@ -38,11 +38,15 @@ if [[ "${1:-}" == "install" ]]; then
       echo "launcher        → /usr/local/bin/bulwark (sudo-visible)"
     fi
   else
-    echo "note: sudo cannot see ~/bin — raise Aegis with:"
-    echo "  sudo $LIB/bulwark aegis apply desktop"
-    echo "or once: sudo install -m 755 $WRAP_SRC /usr/local/bin/bulwark"
+    echo "note: once for sudo PATH: sudo install -m 755 $WRAP_SRC /usr/local/bin/bulwark"
   fi
 
   echo "installed engine → $LIB/bulwark"
   echo "launcher        → $HOME/bin/bulwark"
+  echo
+  echo "Next (wall is still down until you raise it):"
+  echo "  bulwark aegis apply desktop   # asks for password"
+  echo "  bulwark aegis confirm"
+  echo "  bulwark install --system      # keep wall after reboot"
+  echo "  bulwark                       # look"
 fi
