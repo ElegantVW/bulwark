@@ -105,9 +105,66 @@ enum PurityCmd {
 
 fn main() {
     if let Err(e) = real_main() {
-        eprintln!("bulwark: {e:#}");
+        report_err(&e);
         std::process::exit(1);
     }
+}
+
+/// House error voice — see faeos/docs/error-voice.md (`FAE_DEBUG=1` for detail).
+fn report_err(e: &anyhow::Error) {
+    let full = format!("{e:#}");
+    let (plain, next) = humanize_err(&full);
+    eprintln!("bulwark: {plain}");
+    if let Some(n) = next {
+        eprintln!("  next:  {n}");
+    }
+    if std::env::var_os("FAE_DEBUG").is_some() {
+        eprintln!("  detail: {full}");
+    }
+}
+
+fn humanize_err(full: &str) -> (String, Option<&'static str>) {
+    let l = full.to_ascii_lowercase();
+    if l.contains("permission denied") || l.contains("os error 13") {
+        return (
+            "could not write in your Bulwark folder (permission)".into(),
+            Some("raise the wall again so files are yours, or fix folder ownership"),
+        );
+    }
+    if l.contains("could not raise privileges") || l.contains("sudo failed") {
+        return (
+            "permission was cancelled — the wall was not changed".into(),
+            Some("try again and enter your password when asked"),
+        );
+    }
+    if l.contains("nothing to confirm") {
+        return (
+            "nothing to keep — raise Aegis first".into(),
+            Some("bulwark aegis apply desktop"),
+        );
+    }
+    if l.contains("could not raise the wall") || l.contains("kernel rejected") {
+        return (
+            "Aegis could not raise the wall".into(),
+            Some("try again, or FAE_DEBUG=1 bulwark aegis apply desktop"),
+        );
+    }
+    if l.contains("no confirmed policy") {
+        return (
+            "no kept wall to restore".into(),
+            Some("bulwark aegis apply desktop && bulwark aegis confirm"),
+        );
+    }
+    if l.contains("engine not built") {
+        return (
+            "engine not built yet".into(),
+            Some("cd ~/bulwark && ./build.sh install"),
+        );
+    }
+    // First line of the chain, stripped of harsh prefixes when possible.
+    let head = full.lines().next().unwrap_or(full).trim();
+    let head = head.strip_prefix("bulwark: ").unwrap_or(head);
+    (head.to_string(), None)
 }
 
 fn real_main() -> Result<()> {
@@ -305,12 +362,12 @@ fn cmd_aegis(action: AegisCmd) -> Result<()> {
                     .unwrap_or_else(|_| paths::confirm_marker_path());
                 for _ in 0..secs {
                     if marker.is_file() {
-                        eprintln!("bulwark deadman: confirmed — keep rules");
+                        eprintln!("bulwark: deadman — confirm seen, keeping the wall");
                         return Ok(());
                     }
                     thread::sleep(Duration::from_secs(1));
                 }
-                eprintln!("bulwark deadman: no confirm — undoing table {table}");
+                eprintln!("bulwark: deadman — no confirm, releasing the wall");
             } else if !paths::euid_root() {
                 return elevate_and_reexec(&["aegis", "undo", "--table", &table]);
             }
