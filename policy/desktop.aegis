@@ -18,3 +18,6 @@ allow in tcp 8082 from 127.0.0.1
 allow in tcp 8083 from 127.0.0.1
 allow in tcp 8090 from 127.0.0.1
 allow in tcp 8091 from 127.0.0.1
+# wisp bulb access point: dnsmasq must answer the bulb's DHCP DISCOVER/REQUEST
+# (UDP/67, source 0.0.0.0 until the bulb has an address, so no `from`).
+allow in udp 67
