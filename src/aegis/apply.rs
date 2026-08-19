@@ -319,7 +319,8 @@ pub fn load_bundled_profile(name: &str) -> Result<String> {
         "strict" => include_str!("../../policy/strict.aegis"),
         "server-ssh" => include_str!("../../policy/server-ssh.aegis"),
         "desktop" => include_str!("../../policy/desktop.aegis"),
-        _ => anyhow::bail!("unknown profile {name} (try desktop|strict|server-ssh)"),
+        "goblind" => include_str!("../../policy/goblind.aegis"),
+        _ => anyhow::bail!("unknown profile {name} (try desktop|strict|server-ssh|goblind)"),
     };
     Ok(embedded.to_string())
 }

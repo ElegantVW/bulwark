@@ -47,7 +47,7 @@ bulwark install --system       # prompts again — wall restores on reboot
 bulwark                        # look — mood must tell truth
 ```
 
-Profiles: **`desktop`** (default laptop — **no SSH**), `strict`, `server-ssh` (opens 22).
+Profiles: **`desktop`** (default laptop — **no SSH**), `strict`, `server-ssh` (opens 22), **`goblind`** (desktop + world TCP 25/465/993 for company MX).
 
 Boot restore uses `bulwark-aegis.service` → `aegis restore` with the last
 **confirmed** policy under `/var/lib/bulwark/`. Release Aegis clears that so

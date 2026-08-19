@@ -470,4 +470,26 @@ mod tests {
         let ssh = include_str!("../policy/server-ssh.aegis");
         assert!(ssh.contains("tcp 22"), "server-ssh should allow 22");
     }
+
+    #[test]
+    fn goblind_profile_opens_mail_ports_not_ssh() {
+        let text = include_str!("../policy/goblind.aegis");
+        for port in ["25", "465", "993"] {
+            assert!(
+                text.lines()
+                    .any(|l| l.trim() == format!("allow in tcp {port}")),
+                "goblind must allow tcp {port}: {text}"
+            );
+        }
+        for line in text.lines() {
+            let t = line.split('#').next().unwrap_or("").trim();
+            if t.is_empty() {
+                continue;
+            }
+            assert!(
+                !(t.contains("tcp 22") && t.starts_with("allow")),
+                "goblind must not allow SSH: {t}"
+            );
+        }
+    }
 }

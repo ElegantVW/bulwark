@@ -1,0 +1,27 @@
+# Bulwark Aegis policy — desktop + company mail (goblind)
+# Same as desktop, plus world inbound SMTP/IMAP for MX cutover.
+# SSH is NOT opened here — use profile server-ssh if you need it
+
+table bulwark
+family inet
+
+default input drop
+default output accept
+default forward drop
+
+allow lo
+allow established
+# faeOS local LLM / services (loopback only — enforced as 127.0.0.1)
+allow in tcp 8080 from 127.0.0.1
+allow in tcp 8081 from 127.0.0.1
+allow in tcp 8082 from 127.0.0.1
+allow in tcp 8083 from 127.0.0.1
+allow in tcp 8090 from 127.0.0.1
+allow in tcp 8091 from 127.0.0.1
+# wisp bulb access point: dnsmasq must answer the bulb's DHCP DISCOVER/REQUEST
+# (UDP/67, source 0.0.0.0 until the bulb has an address, so no `from`).
+allow in udp 67
+# goblind — MX inbound, submission, IMAP (router must also forward WAN→LAN)
+allow in tcp 25
+allow in tcp 465
+allow in tcp 993

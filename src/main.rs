@@ -71,7 +71,7 @@ enum Commands {
 enum AegisCmd {
     /// Show whether netlink is available + current policy summary
     Status,
-    /// Apply a bundled profile (desktop|strict|server-ssh) with deadman
+    /// Apply a bundled profile (desktop|strict|server-ssh|goblind) with deadman
     Apply {
         profile: String,
         /// Seconds before auto-undo if not confirmed (0=disable deadman)
