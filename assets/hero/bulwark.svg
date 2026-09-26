@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="360" viewBox="0 0 720 360">
+<rect width="720" height="360" fill="#1A1218"/>
+<g font-family="DejaVu Sans Mono, Menlo, Consolas, monospace" font-size="26" text-anchor="middle">
+<text x="360" y="101" fill="#F0D8A0">_|_|_|_</text>
+<text x="360" y="131" fill="#F0D8A0">|_____|</text>
+<text x="360" y="161" fill="#F0D8A0">_|_|_|_</text>
+<text x="360" y="191" fill="#F0D8A0">|_____|</text>
+<text x="360" y="221" fill="#F0D8A0">  | |  </text>
+</g>
+<text x="360" y="307" fill="#F0E4EE" font-family="Fraunces, Georgia, serif" font-size="36" text-anchor="middle">Bulwark</text>
+<text x="360" y="337" fill="#6B6FA8" font-family="DejaVu Sans Mono, monospace" font-size="16" text-anchor="middle">house ward + glass seal</text>
+</svg>

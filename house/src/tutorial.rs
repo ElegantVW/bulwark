@@ -8,6 +8,10 @@ const RESET: &str = "\x1b[0m";
 
 const PAGES: &[&[&str]] = &[
     &[
+        "_|_|_|_",
+        "|_____|",
+        "_|_|_|_",
+        "",
         "Hi! I'm Bulwark.",
         "I help keep this computer safe.",
         "My tools have magic names — easy to learn.",
