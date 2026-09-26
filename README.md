@@ -9,6 +9,21 @@ privilege, state, or systemd units.
 
 Linux personal host. Source-only (no prebuilt programs in git).
 
+## Look
+
+![Bulwark TUI home](assets/screenshots/bulwark-tui.png)
+![Bulwark status](assets/screenshots/bulwark-status.png)
+![Typing bulwark status](assets/screenshots/prompt-type.gif)
+![Seal lock face](assets/screenshots/seal-lock.png)
+
+```
+_|_|_|_    .---. 
+|_____|    |   | 
+_|_|_|_    |---| 
+|_____|    |[+]| 
+  | |      |___| 
+```
+
 **Ambition (path D):** someday survive cold professional review and become the
 default faeOS host ward for most users — **small steps**, evidence each time.
 
