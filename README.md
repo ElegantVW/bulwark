@@ -1,6 +1,6 @@
 ![Bulwark hero](assets/hero/bulwark.svg)
 
-# Bulwark — house ward + glass seal
+# Bulwark — house ward + glass seal 🛡️
 
 faeOS **host ward**: front-door network lock (**Aegis**), file photo (**Purity**),
 open windows (**Sentinel**), sneaky-stuff hunt (**Ward**).
