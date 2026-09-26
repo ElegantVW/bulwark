@@ -7,6 +7,6 @@
 <text x="360" y="191" fill="#F0D8A0">|_____|</text>
 <text x="360" y="221" fill="#F0D8A0">  | |  </text>
 </g>
-<text x="360" y="307" fill="#F0E4EE" font-family="Fraunces, Georgia, serif" font-size="36" text-anchor="middle">Bulwark</text>
+<text x="360" y="307" fill="#F0E4EE" font-family="DejaVu Sans Mono, Menlo, Consolas, monospace" font-size="30" font-weight="bold" text-anchor="middle">Bulwark</text>
 <text x="360" y="337" fill="#6B6FA8" font-family="DejaVu Sans Mono, monospace" font-size="16" text-anchor="middle">house ward + glass seal</text>
 </svg>
