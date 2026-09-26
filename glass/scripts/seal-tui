@@ -1,0 +1,518 @@
+#!/usr/bin/env python3
+"""seal-tui — configure seal and manage lock screen users
+
+    seal-tui     interactive TUI
+    seal-tui -h  help
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path.home() / "bin"))
+os.environ["PIXIE_UNICODE"] = "1"
+
+import fae_termart as art
+from fae_termart import Palette as P
+
+CONFIG = Path.home() / ".config" / "pixie" / "seal.json"
+HEARTH = Path.home() / ".config" / "pixie" / "hearth.json"
+
+KINDS = {
+    "enabled":             ("bool",   "Auto-lock",         10),
+    "ac_idle_seconds":     ("time",   "AC idle timeout",   600),
+    "battery_idle_seconds":("time",   "Battery idle to",   120),
+    "dont_lock":           ("bool",   "Don't lock now",    False),
+    "guest_enabled":       ("bool",   "Guest access",      False),
+    "suspend_on_lock":     ("bool",   "Suspend on lock",   False),
+    "lock_message":        ("str",    "Lock message",      ""),
+}
+KEYS = list(KINDS)
+BUTTONS = [("Lock Now", "lock"), ("Restart", "restart"),
+           ("Guest On",  "guest_on"), ("Guest Off", "guest_off")]
+USER_BTNS = [
+    ("Add User", "add_user"),
+    ("Remove", "rem_user"),
+    ("Set Pass", "set_pass"),
+]
+
+
+def load_json(path: Path) -> dict:
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_json(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def fmt_time(sec: int) -> str:
+    if sec >= 60:
+        m, s = divmod(sec, 60)
+        return f"{m}m {s:02d}s"
+    return f"{sec}s"
+
+
+def fmt_val(key: str, cfg: dict) -> str:
+    v = cfg.get(key)
+    if key in ("ac_idle_seconds", "battery_idle_seconds"):
+        return fmt_time(int(v) if isinstance(v, (int, float)) else KINDS[key][2])
+    if isinstance(v, bool):
+        return f"{P.OK}On{P.RESET}" if v else "Off"
+    if isinstance(v, str):
+        return f'"{v}"' if v else "(default)"
+    return str(v)
+
+
+def daemon_status() -> tuple[bool, str]:
+    try:
+        subprocess.run(["pgrep", "-x", "seald"], capture_output=True, check=True)
+        return True, f"{P.OK}active{P.RESET}"
+    except Exception:
+        return False, f"{P.MUTED}stopped{P.RESET}"
+
+
+def daemon_restart():
+    subprocess.run(["systemctl", "--user", "restart", "seald.service"],
+                   capture_output=True)
+
+
+def get_idle() -> str:
+    try:
+        ms = int(subprocess.check_output(["xprintidle"], text=True).strip())
+        return fmt_time(ms // 1000)
+    except Exception:
+        return "?"
+
+
+def discover_users() -> list[dict]:
+    """Read ALL users from /etc/passwd, flag hidden ones."""
+    overrides = load_json(HEARTH)
+    users = []
+    try:
+        with open("/etc/passwd") as f:
+            for line in f:
+                parts = line.strip().split(":")
+                if len(parts) < 7:
+                    continue
+                name = parts[0]
+                uid = int(parts[2]) if parts[2].isdigit() else 0
+                shell = parts[6]
+                if uid < 1000 or uid >= 65534 or name == "nobody":
+                    continue
+                if "nologin" in shell or "false" in shell:
+                    continue
+
+                ov = overrides.get(name, {})
+                if not isinstance(ov, dict):
+                    ov = {}
+                hidden = ov.get("hidden", "false") == "true"
+                display = ov.get("display", name)
+
+                users.append({
+                    "name": name, "display": display,
+                    "uid": uid, "hidden": hidden,
+                })
+    except Exception:
+        pass
+    users.sort(key=lambda u: u["uid"])
+    return users
+
+
+def valid_username(name: str) -> bool:
+    return bool(re.match(r'^[a-z_][a-z0-9_-]{0,30}$', name))
+
+
+def set_user_password(fd, username: str) -> str:
+    """Prompt twice and set password via `sudo chpasswd`."""
+    import getpass
+
+    try:
+        art.tui_cleanup()
+    except Exception:
+        pass
+    try:
+        print(f"set password for {username}")
+        p1 = getpass.getpass("new password: ")
+        p2 = getpass.getpass("confirm: ")
+        if not p1:
+            return "cancelled (empty)"
+        if p1 != p2:
+            return "passwords do not match"
+        payload = f"{username}:{p1}\n".encode()
+        r = subprocess.run(
+            ["sudo", "-n", "chpasswd"],
+            input=payload,
+            capture_output=True,
+            timeout=30,
+        )
+        if r.returncode != 0:
+            r = subprocess.run(
+                ["sudo", "chpasswd"],
+                input=payload,
+                capture_output=True,
+                timeout=60,
+            )
+        if r.returncode == 0:
+            return f"password set for {username}"
+        err = (r.stderr or b"").decode(errors="replace").strip()
+        return f"chpasswd failed: {err or r.returncode}"
+    except Exception as e:
+        return f"set password error: {e}"
+    finally:
+        art.tui_begin(fd, "seal-tui")
+
+
+# ── TUI ──────────────────────────────────────────────────────────────
+
+def run_tui() -> int:
+    fd = art.tui_open_tty()
+    if fd is None:
+        print("seal-tui needs a terminal", file=sys.stderr)
+        return 1
+
+    art.tui_begin(fd, "seal-tui")
+
+    cfg = load_json(CONFIG)
+    for k, v in KINDS.items():
+        if k not in cfg:
+            cfg[k] = v[2]
+
+    overrides = load_json(HEARTH)
+    users = discover_users()
+
+    sel = 0
+    mode = "nav"        # nav | edit_str | confirm_remove
+    edit_buf = ""
+    edit_user = ""
+    status = ""
+    pending_remove = ""
+
+    btn_idx = len(KEYS)
+    user_btn_start = btn_idx + len(BUTTONS)
+    user_list_start = user_btn_start + len(USER_BTNS)
+
+    total_rows = user_list_start + len(users)
+
+    try:
+        while True:
+            d_ok, d_text = daemon_status()
+            idle_sec = get_idle()
+            users = discover_users()
+
+            tw = art.term_width()
+            body_w = tw - 4
+
+            rows: list[str] = []
+
+            header = f"{P.BOLD}{P.PINK}* Seal *{P.RESET} daemon {d_text} idle {idle_sec}"
+            rows.append(art.pad_vis(header, body_w))
+            rows.append(art.pad_vis("", body_w))
+
+            # ── lock settings ──
+            for i, key in enumerate(KEYS):
+                kind, label, _ = KINDS[key]
+                val_str = fmt_val(key, cfg)
+
+                if key == "lock_message" and mode == "edit_str" and i == sel and not edit_user:
+                    row = f"  {label}: {P.PINK}\"{edit_buf}_{P.RESET}\""
+                else:
+                    row = f"  {label}: {val_str}"
+
+                if i == sel:
+                    row = art.paint(art.pad_vis(row, body_w), P.PINK)
+                else:
+                    row = art.pad_vis(row, body_w)
+                rows.append(row)
+
+            rows.append(art.pad_vis("", body_w))
+
+            # ── action buttons ──
+            btn_parts: list[str] = []
+            for j, (label, _) in enumerate(BUTTONS):
+                idx = btn_idx + j
+                if idx == sel:
+                    btn_parts.append(f"{P.BOLD}{P.PINK}[ {label} ]{P.RESET}")
+                else:
+                    btn_parts.append(f"{P.MUTED}[ {label} ]{P.RESET}")
+            rows.append(art.pad_vis("  " + "  ".join(btn_parts), body_w))
+            rows.append(art.pad_vis("", body_w))
+
+            # ── users section ──
+            rows.append(art.pad_vis(art.paint("Users", P.PINK_DIM), body_w))
+
+            # User action buttons
+            ubtn_parts: list[str] = []
+            for j, (label, _) in enumerate(USER_BTNS):
+                idx = user_btn_start + j
+                if idx == sel:
+                    ubtn_parts.append(f"{P.BOLD}{P.PINK}[ {label} ]{P.RESET}")
+                else:
+                    ubtn_parts.append(f"{P.MUTED}[ {label} ]{P.RESET}")
+            rows.append(art.pad_vis("  " + "  ".join(ubtn_parts), body_w))
+
+            # User list
+            for i, user in enumerate(users):
+                idx = user_list_start + i
+                mark = " " if not user["hidden"] else "x"
+
+                if mode == "edit_str" and edit_user == user["name"]:
+                    row = f"  [{mark}] {user['name']}: \"{edit_buf}_\""
+                else:
+                    row = f"  [{mark}] {user['name']}: {user['display']}"
+
+                if user["hidden"]:
+                    row = art.paint(art.pad_vis(row, body_w), P.MUTED)
+                elif idx == sel:
+                    row = art.paint(art.pad_vis(row, body_w), P.PINK)
+                else:
+                    row = art.pad_vis(row, body_w)
+                rows.append(row)
+
+            if status:
+                rows.append(art.pad_vis(art.paint(status, P.WARN), body_w))
+
+            if mode == "confirm_remove" and pending_remove:
+                confirm_line = f"  delete user '{pending_remove}' and all files? y / n"
+                rows.append(art.pad_vis(art.paint(confirm_line, P.WARN), body_w))
+
+            body = art.box(rows, title="Lock", width=tw, body_style=(P.SILVER,))
+
+            runes = art.box(
+                [
+                    art.pad_vis(
+                        "j/k move · space hide · enter display · p set pass · h hide · r delete",
+                        body_w,
+                    ),
+                    art.pad_vis("n add user · s save · L lock · R restart · q quit", body_w),
+                ],
+                title="runes",
+                width=tw,
+                body_style=(P.MUTED,),
+            )
+
+            frame = body + "\n" + runes
+            art.paint_frame(fd, frame)
+
+            key = art.tui_read_key(fd, timeout=1.0)
+
+            # Handle new user input completion — actually create system user
+            if mode == "edit_str" and edit_user == "__new__":
+                if key == "enter":
+                    if edit_buf and valid_username(edit_buf):
+                        subprocess.run(["hearth", "add", edit_buf], capture_output=True)
+                        if edit_buf not in overrides or not isinstance(overrides[edit_buf], dict):
+                            overrides[edit_buf] = {}
+                        overrides[edit_buf]["display"] = edit_buf
+                        overrides[edit_buf]["hidden"] = "false"
+                        save_json(HEARTH, overrides)
+                        status = f"created user {edit_buf}"
+                    else:
+                        status = "invalid username (a-z, 0-9, _ -)"
+                    mode = "nav"
+                    edit_user = ""
+                elif key == "esc":
+                    mode = "nav"
+                    edit_user = ""
+                elif key == "backspace":
+                    edit_buf = edit_buf[:-1]
+                elif len(key) == 1 and key.isprintable():
+                    edit_buf += key
+                continue
+
+            # ── edit_str mode ──
+            if mode == "edit_str":
+                if key == "enter":
+                    if edit_user:
+                        if edit_user not in overrides or not isinstance(overrides[edit_user], dict):
+                            overrides[edit_user] = {}
+                        overrides[edit_user]["display"] = edit_buf
+                    else:
+                        cfg["lock_message"] = edit_buf
+                    mode = "nav"
+                    edit_user = ""
+                elif key == "esc":
+                    mode = "nav"
+                    edit_user = ""
+                elif key == "backspace":
+                    edit_buf = edit_buf[:-1]
+                elif len(key) == 1 and key.isprintable():
+                    edit_buf += key
+                continue
+
+            # ── confirm_remove mode ──
+            if mode == "confirm_remove":
+                if key in ("y", "Y"):
+                    if pending_remove:
+                        subprocess.run(["hearth", "remove", pending_remove], capture_output=True)
+                        if pending_remove in overrides:
+                            del overrides[pending_remove]
+                        save_json(HEARTH, overrides)
+                        status = f"deleted user {pending_remove}"
+                    mode = "nav"
+                elif key in ("n", "N", "esc", "q"):
+                    mode = "nav"
+                    status = "cancelled"
+                continue
+
+            # ── nav mode ──
+            if key in ("q", "Q", "esc"):
+                break
+
+            if key in ("j", "down"):
+                sel = min(total_rows - 1, sel + 1)
+            elif key in ("k", "up"):
+                sel = max(0, sel - 1)
+            elif key == "s":
+                save_json(CONFIG, cfg)
+                save_json(HEARTH, overrides)
+                status = "saved"
+            elif key == "L":
+                subprocess.Popen(["seal"])
+                status = "locked"
+            elif key == "R":
+                daemon_restart()
+                status = "daemon restarted"
+            elif key in (" ", "enter"):
+                if sel < len(KEYS):
+                    key_name = KEYS[sel]
+                    kind, _, _ = KINDS[key_name]
+                    if kind == "bool":
+                        cfg[key_name] = not cfg.get(key_name, False)
+                    elif kind == "time":
+                        cur = int(cfg.get(key_name, 300))
+                        delta = 60 if key == "enter" else 30
+                        cfg[key_name] = max(30, min(3600, cur + delta))
+                    elif kind == "str":
+                        mode = "edit_str"
+                        edit_buf = cfg.get(key_name, "")
+                        edit_user = ""
+                        status = ""
+                elif btn_idx <= sel < user_btn_start:
+                    btn_sel = sel - btn_idx
+                    if btn_sel < len(BUTTONS):
+                        action = BUTTONS[btn_sel][1]
+                        if action == "lock":
+                            subprocess.Popen(["seal"])
+                            status = "locked"
+                        elif action == "restart":
+                            daemon_restart()
+                            status = "daemon restarted"
+                        elif action == "guest_on":
+                            subprocess.Popen(["hearth", "guest", "start"])
+                            status = "guest started"
+                        elif action == "guest_off":
+                            subprocess.Popen(["hearth", "guest", "stop"])
+                            status = "guest stopped"
+                elif user_btn_start <= sel < user_list_start:
+                    ubtn_sel = sel - user_btn_start
+                    if ubtn_sel < len(USER_BTNS):
+                        action = USER_BTNS[ubtn_sel][1]
+                        if action == "add_user":
+                            mode = "edit_str"
+                            edit_buf = ""
+                            edit_user = "__new__"
+                            status = "enter username"
+                        elif action == "rem_user":
+                            # Delete last selected user (or first visible)
+                            target = None
+                            if sel >= user_list_start and sel < total_rows:
+                                target = users[sel - user_list_start]["name"]
+                            elif users:
+                                target = users[0]["name"]
+                            if target:
+                                mode = "confirm_remove"
+                                pending_remove = target
+                                status = ""
+                            else:
+                                status = "no users"
+                        elif action == "set_pass":
+                            target = None
+                            if sel >= user_list_start and sel < total_rows:
+                                target = users[sel - user_list_start]["name"]
+                            elif users:
+                                target = users[0]["name"]
+                            if target:
+                                status = set_user_password(fd, target)
+                            else:
+                                status = "no users"
+                elif sel >= user_list_start and sel < total_rows:
+                    user_idx = sel - user_list_start
+                    if user_idx < len(users):
+                        user_name = users[user_idx]["name"]
+                        if key == "enter":
+                            mode = "edit_str"
+                            edit_user = user_name
+                            ov = overrides.get(user_name, {})
+                            edit_buf = ov.get("display", user_name) if isinstance(ov, dict) else user_name
+                            status = ""
+                        elif key == " ":
+                            # toggle hidden
+                            if user_name not in overrides or not isinstance(overrides[user_name], dict):
+                                overrides[user_name] = {}
+                            cur = overrides[user_name].get("hidden", "false")
+                            overrides[user_name]["hidden"] = "false" if cur == "true" else "true"
+                            status = f"{'hidden' if overrides[user_name]['hidden'] == 'true' else 'shown'} {user_name}"
+            elif key == "h":
+                if sel >= user_list_start and sel < total_rows:
+                    user_idx = sel - user_list_start
+                    if user_idx < len(users):
+                        user_name = users[user_idx]["name"]
+                        if user_name not in overrides or not isinstance(overrides[user_name], dict):
+                            overrides[user_name] = {}
+                        cur = overrides[user_name].get("hidden", "false")
+                        overrides[user_name]["hidden"] = "false" if cur == "true" else "true"
+                        status = f"{'hidden' if overrides[user_name]['hidden'] == 'true' else 'shown'} {user_name}"
+            elif key == "p":
+                if sel >= user_list_start and sel < total_rows:
+                    user_idx = sel - user_list_start
+                    if user_idx < len(users):
+                        status = set_user_password(fd, users[user_idx]["name"])
+                elif users:
+                    status = set_user_password(fd, users[0]["name"])
+            elif key in ("r", "d"):
+                if sel >= user_list_start and sel < total_rows:
+                    user_idx = sel - user_list_start
+                    if user_idx < len(users):
+                        mode = "confirm_remove"
+                        pending_remove = users[user_idx]["name"]
+                        status = ""
+            elif key == "n":
+                mode = "edit_str"
+                edit_buf = ""
+                edit_user = "__new__"
+                status = "enter system username to add"
+            elif key in ("left", "right"):
+                if sel < len(KEYS):
+                    key_name = KEYS[sel]
+                    kind, _, _ = KINDS[key_name]
+                    if kind == "time":
+                        cur = int(cfg.get(key_name, 300))
+                        delta = -30 if key == "left" else 30
+                        cfg[key_name] = max(30, min(3600, cur + delta))
+
+    finally:
+        save_json(HEARTH, overrides)
+        try:
+            art.tui_cleanup()
+        except Exception:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+    else:
+        sys.exit(run_tui())

@@ -1,10 +1,11 @@
-# Bulwark
+# Bulwark — house ward + glass seal
 
 faeOS **host ward**: front-door network lock (**Aegis**), file photo (**Purity**),
 open windows (**Sentinel**), sneaky-stuff hunt (**Ward**).
 
-**Seal** (screen lock / greeter) is a different tool — it seals the *glass*.
-Bulwark watches the *house*. Do not merge them.
+**Seal** (screen lock / greeter, `glass/`) lives in this repo and seals the *glass*.
+Bulwark (`house/`) watches the *house*. Same repo, separate domains — never share
+privilege, state, or systemd units.
 
 Linux personal host. Source-only (no prebuilt programs in git).
 
@@ -12,9 +13,9 @@ Linux personal host. Source-only (no prebuilt programs in git).
 default faeOS host ward for most users — **small steps**, evidence each time.
 
 **Now:** when Aegis is raised, strangers do not get a free inbound door, and the
-shield **does not lie**. Next gates: [docs/TRUST.md](docs/TRUST.md) (Bulwark is
-not the attacker) → [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) (sandbox attack
-cards). Agent notes: [AGENTS.md](AGENTS.md).
+shield **does not lie**. Next gates: [house/docs/TRUST.md](house/docs/TRUST.md) (Bulwark is
+not the attacker) → [house/docs/ADVERSARIAL.md](house/docs/ADVERSARIAL.md) (sandbox attack
+cards). Glass lock: [glass/docs/seal.md](glass/docs/seal.md). Agent notes: [AGENTS.md](AGENTS.md).
 
 ## Requirements
 

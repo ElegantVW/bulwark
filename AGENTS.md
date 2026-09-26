@@ -1,7 +1,7 @@
 # AGENTS.md — Bulwark
 
-Canonical repo: `ElegantVW/bulwark` → `~/bulwark`.  
-faeOS keeps only a thin launcher; do **not** vendor this tree back into `faeos/`.
+Canonical repo: `ElegantVW/bulwark` → `~/bulwark` (house + glass).
+faeOS keeps only thin launchers; do **not** vendor this tree back into `faeos/`.
 
 ## North star (locked)
 
@@ -16,7 +16,7 @@ faeOS keeps only a thin launcher; do **not** vendor this tree back into `faeos/`
 | Law | Rule |
 |-----|------|
 | Voice | All-ages, wards/Aegis/Purity — see faeos `docs/cli-voice.md` + `docs/error-voice.md`. No `doctor`. |
-| Seal | Separate. Glass vs house. Never merge. |
+| Seal | Same repo, separate domains. Glass (`glass/`, screen lock) vs house (`house/`, host ward). Never share privilege, state, or units. |
 | Packages | No runtime dep on `nft`/`ufw`/firewalld for apply — raw netlink to kernel nf_tables. |
 | Honesty | Missing/unknown wall ⇒ never SAFE. |
 | Secrets | Elevate via sudo password prompt; never store/print passwords. |
@@ -24,8 +24,8 @@ faeOS keeps only a thin launcher; do **not** vendor this tree back into `faeos/`
 
 ## Trust docs (read before changing privilege paths)
 
-- [docs/TRUST.md](docs/TRUST.md) — Bulwark must not *be* the attack  
-- [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) — sandbox attack program  
+- [house/docs/TRUST.md](house/docs/TRUST.md) — Bulwark must not *be* the attack
+- [house/docs/ADVERSARIAL.md](house/docs/ADVERSARIAL.md) — sandbox attack program (house only; glass uses lock-bypass tests in `glass/docs/seal.md`)  
 
 ## Iteration rule
 
@@ -38,11 +38,17 @@ faeOS keeps only a thin launcher; do **not** vendor this tree back into `faeos/`
 
 | Path | Role |
 |------|------|
-| `policy/*.aegis` | Bundled profiles (`desktop` = no SSH) |
-| `src/aegis/` + `src/netlink/` | Raise/release wall (kernel) |
-| `src/words.rs` | Posture / exposure / error-facing honesty |
-| `src/paths.rs` | XDG + SUDO_USER + chown |
-| `scripts/bulwark` | Thin launcher |
+| `house/policy/*.aegis` | Bundled profiles (`desktop` = no SSH) |
+| `house/src/aegis/` + `house/src/netlink/` | Raise/release wall (kernel) |
+| `house/src/words.rs` | Posture / exposure / error-facing honesty |
+| `house/src/paths.rs` | XDG + SUDO_USER + chown |
+| `house/scripts/bulwark` | Thin launcher (house) |
+| `glass/src/` | Seal screen lock / greeter (X11 + PAM, no netlink) |
+| `glass/scripts/seal*` | Thin launchers (glass) |
+| `glass/systemd/seald.service` | User idle-lock daemon |
+| `glass/pam/seal.pam` | PAM stack for glass |
+
+Boundary: no shared Rust code between `house/` and `glass/`; separate state (`house`: `~/.local/share/faeos/bulwark` + `/var/lib/bulwark`; `glass`: `~/.config/pixie/seal.json`); separate units.
 
 ## Quick verify
 
@@ -50,5 +56,6 @@ faeOS keeps only a thin launcher; do **not** vendor this tree back into `faeos/`
 cargo test
 bulwark status
 bulwark aegis apply desktop && bulwark aegis confirm
-# sandbox: see docs/ADVERSARIAL.md
+# sandbox: see house/docs/ADVERSARIAL.md
+# glass: see glass/docs/seal.md
 ```

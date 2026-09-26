@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# seal — thin launcher for the greeter engine (source-only kit)
+set -euo pipefail
+
+FAEOS="${FAEOS_ROOT:-$HOME/faeos}"
+# kit layout: this script is in <faeos>/bin
+here="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "$here/../seal/Cargo.toml" ]]; then
+  FAEOS="$(cd "$here/.." && pwd)"
+fi
+
+CANDIDATES=(
+  "${SEAL_BIN:-}"
+  "$HOME/.local/lib/faeos/seal"
+  "$FAEOS/seal/target/release/seal"
+  "$HOME/faeos/seal/target/release/seal"
+)
+
+for c in "${CANDIDATES[@]}"; do
+  [[ -n "$c" && -x "$c" ]] || continue
+  exec "$c" "$@"
+done
+
+echo "seal: engine not built yet." >&2
+echo "  build:  cd ~/faeos/seal && ./build.sh install" >&2
+exit 127
