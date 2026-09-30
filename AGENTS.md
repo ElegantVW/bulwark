@@ -7,7 +7,7 @@ faeOS keeps only thin launchers; do **not** vendor this tree back into `faeos/`.
 
 **Long-term:** Bulwark aims to survive **cold professional security review** (path **D**), and someday be the default host ward for most faeOS users — **small steps**, evidence each iteration.
 
-**Near-term:** personal Linux host ward that **does not lie**, **does not become the attacker**, and is **attacked in a sandbox** before big claims.
+**Near-term:** personal Linux host ward that **reports measurements with named sources, and says UNKNOWN when it cannot verify**, **does not become the attacker**, and is **attacked in a sandbox** before big claims.
 
 **Not claims (yet):** nation-state defense, antivirus, “nobody can own this box”, multi-OS, EY-grade product.
 

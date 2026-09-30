@@ -30,7 +30,7 @@ _|_|_|_    |---|
 default faeOS host ward for most users — **small steps**, evidence each time.
 
 **Now:** when Aegis is raised, strangers do not get a free inbound door, and the
-shield **does not lie**. Next gates: [house/docs/TRUST.md](house/docs/TRUST.md) (Bulwark is
+shield **reports what it measured**. Next gates: [house/docs/TRUST.md](house/docs/TRUST.md) (Bulwark is
 not the attacker) → [house/docs/ADVERSARIAL.md](house/docs/ADVERSARIAL.md) (sandbox attack
 cards). Glass lock: [glass/docs/seal.md](glass/docs/seal.md). Agent notes: [AGENTS.md](AGENTS.md).
 
