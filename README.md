@@ -11,6 +11,10 @@ privilege, state, or systemd units.
 
 Linux personal host. Source-only (no prebuilt programs in git).
 
+Status: personal ward, reports measurements with sources, says UNKNOWN when it cannot verify. Not audited — no nation-state/antivirus claims.
+
+For: one Linux box + screen lock. Not for: enterprise, compliance, public servers.
+
 ## Look
 
 ![Bulwark TUI home](assets/screenshots/bulwark-tui.png)
