@@ -1,6 +1,6 @@
 [package]
 name = "bulwark"
-version = "0.1.0"
+version = "0.9.9"
 edition = "2021"
 description = "faeOS first-party host protection — zero runtime package deps"
 license = "MIT"
